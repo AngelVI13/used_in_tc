@@ -1,12 +1,14 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const (
@@ -24,15 +26,52 @@ func GetFilesFromDir(root string, fileType string) ([]string, error) {
 	return files, err
 }
 
-func SearchFile(path string, pattern *regexp.Regexp) bool {
+type SearchResult struct {
+	file         string
+	line         int
+	col          int
+	matchLineTxt string
+}
+
+func (r SearchResult) String() string {
+	return fmt.Sprintf("\n%s\n%s", r.file, r.matchLineTxt)
+}
+
+func SearchFile(path string, pattern *regexp.Regexp) []*SearchResult {
+	results := []*SearchResult{}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		log.Printf("ERROR: Couldn't read file %s: %v", path, err)
-		return false
+		return []*SearchResult{}
+	}
+	text := string(data)
+
+	matches := pattern.FindAllStringIndex(text, -1)
+	for _, match := range matches {
+		start := match[0]
+		end := match[1]
+
+		pretext := text[:start]
+		posttext := text[end:]
+		lineNum := strings.Count(pretext, "\n") + 1
+
+		leftNewLineIdx := strings.LastIndex(pretext, "\n")
+		rightNewLineIdx := strings.Index(posttext, "\n")
+
+		matchLineText := pretext[leftNewLineIdx:] + text[start:end] + posttext[:rightNewLineIdx]
+		colNum := start - leftNewLineIdx
+
+		results = append(results, &SearchResult{
+			file:         path,
+			line:         lineNum,
+			col:          colNum,
+			matchLineTxt: matchLineText,
+		})
+		log.Println(matchLineText)
 	}
 
-	result := pattern.Find(data)
-	return result != nil
+	return results
 }
 
 func setupLogger(filename string) {
@@ -61,13 +100,21 @@ func main() {
 
 	log.Println(searchPattern, fileType, dir)
 
+	start := time.Now()
+
 	files, _ := GetFilesFromDir(dir, fileType)
-	for idx, file := range files {
+	count := 0
+	for _, file := range files {
 		found := SearchFile(file, searchPattern)
-		if found {
-			log.Println(idx, file, " <<<<<<<<<<")
-		} else {
-			log.Println(idx, file)
+		if len(found) == 0 {
+			continue
+		}
+
+		for _, result := range found {
+			count++
+			log.Println(count, result)
 		}
 	}
+
+	log.Println("Elapsed time", time.Since(start).Seconds())
 }
