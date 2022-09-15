@@ -13,6 +13,7 @@ import (
 
 const (
 	LogFile = "search.log"
+	TabSize = 4
 )
 
 func GetFilesFromDir(root string, fileType string) ([]string, error) {
@@ -31,6 +32,7 @@ type SearchResult struct {
 	line         int
 	col          int
 	matchLineTxt string
+	usedInMethod string
 }
 
 func (r SearchResult) String() string {
@@ -92,7 +94,7 @@ func FindAllStringIndex[T SearchTerm](s string, pattern T) [][]int {
 	return results
 }
 
-func ProcessMatch(match []int, text string) (line, col int, matchTxt string) {
+func ProcessMatch(match []int, text string) SearchResult {
 	var (
 		start = match[0]
 		end   = match[1]
@@ -101,7 +103,7 @@ func ProcessMatch(match []int, text string) (line, col int, matchTxt string) {
 		posttext = text[end:]
 	)
 
-	line = strings.Count(pretext, "\n") + 1
+	line := strings.Count(pretext, "\n") + 1
 
 	leftNewLineIdx := strings.LastIndex(pretext, "\n")
 	rightNewLineIdx := strings.Index(posttext, "\n")
@@ -116,12 +118,61 @@ func ProcessMatch(match []int, text string) (line, col int, matchTxt string) {
 	}
 
 	// +1 is needed to ignore the preceding newline
-	matchTxt = (pretext[leftNewLineIdx+1:] +
+	matchTxt := (pretext[leftNewLineIdx+1:] +
 		text[start:end] +
 		posttext[:rightNewLineIdx])
-	col = start - leftNewLineIdx
+	col := start - leftNewLineIdx
 
-	return line, col, matchTxt
+	// TODO: refactor this to another method
+	// Search for the file line above the match that has a smaller indentation.
+	// When found, try to process a method name from that line -> this is used to
+	// continue searching for usages incase the match does not occur inside a test case file
+	matchCol := -1
+	usedInMethod := ""
+	lines := strings.Split(pretext, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		textLine := lines[i]
+
+		textCol := 0
+		for idx, c := range textLine {
+			if string(c) != " " {
+				textCol = idx
+				break
+			}
+		}
+
+		// During the first iteration we find the indentation level of match
+		if i == len(lines)-1 {
+			matchCol = textCol
+			continue
+		}
+
+		if textCol != matchCol-TabSize {
+			continue
+		}
+
+		methodPattern, err := regexp.Compile(`def\s*(?P<name>.*?)\(`)
+		if err != nil {
+			log.Fatalf("Couldn't compile method declaration regex: %v", err)
+		}
+		nameIdx := methodPattern.SubexpIndex("name")
+
+		match := methodPattern.FindStringSubmatch(textLine)
+		if match == nil {
+			break
+		}
+
+		usedInMethod = match[nameIdx]
+		log.Println(textLine, "<<<", usedInMethod)
+		break
+	}
+
+	return SearchResult{
+		line:         line,
+		col:          col,
+		matchLineTxt: matchTxt,
+		usedInMethod: usedInMethod,
+	}
 }
 
 func ProcessTc(text, path string) (isTc bool, tcId string) {
@@ -161,14 +212,10 @@ func SearchFile[T SearchTerm](path string, pattern T) *FileResult {
 
 	matches := FindAllStringIndex(text, pattern)
 	for _, match := range matches {
-		lineNum, colNum, matchLineText := ProcessMatch(match, text)
+		searchResult := ProcessMatch(match, text)
+		searchResult.file = path
 
-		results = append(results, SearchResult{
-			file:         path,
-			line:         lineNum,
-			col:          colNum,
-			matchLineTxt: matchLineText,
-		})
+		results = append(results, searchResult)
 	}
 
 	if len(results) <= 0 {
@@ -184,19 +231,95 @@ func SearchFile[T SearchTerm](path string, pattern T) *FileResult {
 	}
 }
 
-func SearchForUsagesInTc[T SearchTerm](dir, fileType string, searchPattern T) []string {
-	testCases := []string{}
-	files, _ := GetFilesFromDir(dir, fileType)
-	for _, file := range files {
-		found := SearchFile(file, searchPattern)
-		// found := SearchFile(file, searchPatternStr)
+type SearchJob[T SearchTerm] struct {
+	filepath string
+	pattern  T
+}
+
+func worker[T SearchTerm](jobs <-chan SearchJob[T], results chan<- FileResult, done chan<- int) {
+	numOfResults := 0
+	for j := range jobs {
+		found := SearchFile(j.filepath, j.pattern)
 		if found == nil {
 			continue
 		}
+		results <- *found
+		numOfResults++
+	}
+	done <- numOfResults
+}
 
-		fmt.Println(found)
-		if found.tcId != "" {
-			testCases = append(testCases, found.tcId)
+func SearchInRepo[T SearchTerm](dir, fileType string, searchPattern T) []FileResult {
+	files, err := GetFilesFromDir(dir, fileType)
+	if err != nil {
+		log.Fatalf("Couldn't get list of files for dir %s: %v", dir, err)
+	}
+
+	var (
+		workerNum = 4
+		jobNum    = len(files)
+		jobs      = make(chan SearchJob[T], jobNum)
+		results   = make(chan FileResult)
+		done      = make(chan int, workerNum)
+	)
+
+	for i := 0; i < workerNum; i++ {
+		go worker(jobs, results, done)
+	}
+
+	for _, file := range files {
+		jobs <- SearchJob[T]{
+			filepath: file,
+			pattern:  searchPattern,
+		}
+	}
+	close(jobs)
+
+	fileResults := []FileResult{}
+	resultCount := 0
+	workersDone := 0
+	resultsProcessed := 0
+	for {
+		select {
+		case count := <-done:
+			resultCount += count
+			workersDone++
+		case result := <-results:
+			resultsProcessed++
+			fileResults = append(fileResults, result)
+		}
+
+		if workersDone == workerNum && resultsProcessed == resultCount {
+			break
+		}
+	}
+
+	return fileResults
+
+}
+
+func SearchForUsagesInTc[T SearchTerm](dir, fileType string, searchPattern T) []string {
+	testCases := []string{}
+	nonTcMatches := []FileResult{}
+
+	results := SearchInRepo(dir, fileType, searchPattern)
+	for _, result := range results {
+		fmt.Println(result)
+		if result.tcId != "" {
+			testCases = append(testCases, result.tcId)
+		} else {
+			nonTcMatches = append(nonTcMatches, result)
+		}
+	}
+
+	// TODO: finish this by recursively continuing the search until it reaches a test case
+	log.Println("Non TC results")
+	for _, fileResult := range nonTcMatches {
+		for _, searchResult := range fileResult.matches {
+			log.Println(searchResult)
+			if searchResult.usedInMethod != "" {
+				log.Println(searchResult.usedInMethod)
+			}
 		}
 	}
 
@@ -221,6 +344,7 @@ func main() {
 	// TODO: use this flag
 	// useRegex := true
 	pattern := `\.outputHeater\.set_disconnected`
+	// pattern := `\.outputHeater\.`
 	searchPattern, err := regexp.Compile(pattern)
 	if err != nil {
 		log.Fatalf("Couldn't compile search pattern %s: %v", pattern, err)
@@ -235,7 +359,7 @@ func main() {
 	start := time.Now()
 
 	testCases := SearchForUsagesInTc(dir, fileType, searchPattern)
-	log.Println("Used in test cases:")
+	log.Printf("Used in test cases (%d):", len(testCases))
 	log.Println(testCases)
 
 	log.Println("Elapsed time", time.Since(start).Seconds())
