@@ -34,44 +34,173 @@ type SearchResult struct {
 }
 
 func (r SearchResult) String() string {
-	return fmt.Sprintf("\n%s\n%s", r.file, r.matchLineTxt)
+	return fmt.Sprintf("%d: %s", r.line, r.matchLineTxt)
 }
 
-func SearchFile(path string, pattern *regexp.Regexp) []*SearchResult {
-	results := []*SearchResult{}
+type FileResult struct {
+	file    string
+	matches []SearchResult
+	isTc    bool
+	tcId    string
+}
+
+func (r FileResult) String() string {
+	out := fmt.Sprintf("%s\n", r.file)
+
+	for _, match := range r.matches {
+		out += fmt.Sprintf("\t%s\n\n", match)
+	}
+
+	return out
+}
+
+type SearchTerm interface {
+	string | *regexp.Regexp
+}
+
+func FindAllStringIndex[T SearchTerm](s string, pattern T) [][]int {
+	if p, ok := any(pattern).(*regexp.Regexp); ok {
+		return p.FindAllStringIndex(s, -1)
+	}
+
+	sub, ok := any(pattern).(string)
+	if !ok {
+		log.Fatalf(
+			"Expected either a regexp.Regexp or a string but got neither: %v",
+			pattern,
+		)
+	}
+
+	results := make([][]int, 0)
+	subLen := len(sub)
+	currentIdx := 0
+	currentTxt := s
+	for {
+		idx := strings.Index(currentTxt, sub)
+		if idx == -1 {
+			break
+		}
+
+		idx += currentIdx
+
+		results = append(results, []int{idx, idx + subLen})
+
+		currentTxt = currentTxt[idx+subLen:]
+		currentIdx = idx + subLen
+	}
+
+	return results
+}
+
+func ProcessMatch(match []int, text string) (line, col int, matchTxt string) {
+	var (
+		start = match[0]
+		end   = match[1]
+
+		pretext  = text[:start]
+		posttext = text[end:]
+	)
+
+	line = strings.Count(pretext, "\n") + 1
+
+	leftNewLineIdx := strings.LastIndex(pretext, "\n")
+	rightNewLineIdx := strings.Index(posttext, "\n")
+
+	if leftNewLineIdx == -1 || rightNewLineIdx == -1 {
+		log.Fatalf(
+			"Couldn't find left newline or right newline for match %s: %d %d",
+			text[start:end],
+			leftNewLineIdx,
+			rightNewLineIdx,
+		)
+	}
+
+	// +1 is needed to ignore the preceding newline
+	matchTxt = (pretext[leftNewLineIdx+1:] +
+		text[start:end] +
+		posttext[:rightNewLineIdx])
+	col = start - leftNewLineIdx
+
+	return line, col, matchTxt
+}
+
+func ProcessTc(text, path string) (isTc bool, tcId string) {
+	tcPathPattern, err := regexp.Compile(`test_cases/.*?/test_.*?\.py`)
+	if err != nil {
+		log.Fatalf("Couldn't compile TC path pattern: %v", err)
+	}
+	isTc = tcPathPattern.FindString(path) != ""
+
+	tcId = ""
+	if isTc {
+		tcIdPattern, err := regexp.Compile(`Polarion ID: (?P<id>[a-zA-Z0-9]+-\d+)`)
+		if err != nil {
+			log.Fatalf("Couldn't compile TC ID pattern: %v", err)
+		}
+		idIndex := tcIdPattern.SubexpIndex("id")
+		match := tcIdPattern.FindStringSubmatch(text)
+		if match != nil {
+			tcId = match[idIndex]
+		} else {
+			log.Printf("ERROR: Couldn't find ID for TC %s", path)
+		}
+	}
+
+	return isTc, tcId
+}
+
+func SearchFile[T SearchTerm](path string, pattern T) *FileResult {
+	results := []SearchResult{}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		log.Printf("ERROR: Couldn't read file %s: %v", path, err)
-		return []*SearchResult{}
+		return nil
 	}
 	text := string(data)
 
-	matches := pattern.FindAllStringIndex(text, -1)
+	matches := FindAllStringIndex(text, pattern)
 	for _, match := range matches {
-		start := match[0]
-		end := match[1]
+		lineNum, colNum, matchLineText := ProcessMatch(match, text)
 
-		pretext := text[:start]
-		posttext := text[end:]
-		lineNum := strings.Count(pretext, "\n") + 1
-
-		leftNewLineIdx := strings.LastIndex(pretext, "\n")
-		rightNewLineIdx := strings.Index(posttext, "\n")
-
-		matchLineText := pretext[leftNewLineIdx:] + text[start:end] + posttext[:rightNewLineIdx]
-		colNum := start - leftNewLineIdx
-
-		results = append(results, &SearchResult{
+		results = append(results, SearchResult{
 			file:         path,
 			line:         lineNum,
 			col:          colNum,
 			matchLineTxt: matchLineText,
 		})
-		log.Println(matchLineText)
 	}
 
-	return results
+	if len(results) <= 0 {
+		return nil
+	}
+
+	isTc, tcId := ProcessTc(text, path)
+	return &FileResult{
+		file:    path,
+		matches: results,
+		isTc:    isTc,
+		tcId:    tcId,
+	}
+}
+
+func SearchForUsagesInTc[T SearchTerm](dir, fileType string, searchPattern T) []string {
+	testCases := []string{}
+	files, _ := GetFilesFromDir(dir, fileType)
+	for _, file := range files {
+		found := SearchFile(file, searchPattern)
+		// found := SearchFile(file, searchPatternStr)
+		if found == nil {
+			continue
+		}
+
+		fmt.Println(found)
+		if found.tcId != "" {
+			testCases = append(testCases, found.tcId)
+		}
+	}
+
+	return testCases
 }
 
 func setupLogger(filename string) {
@@ -89,11 +218,14 @@ func setupLogger(filename string) {
 func main() {
 	setupLogger(LogFile)
 
+	// TODO: use this flag
+	// useRegex := true
 	pattern := `\.outputHeater\.set_disconnected`
 	searchPattern, err := regexp.Compile(pattern)
 	if err != nil {
 		log.Fatalf("Couldn't compile search pattern %s: %v", pattern, err)
 	}
+	// searchPatternStr := `.outputHeater.set_disconnected`
 
 	fileType := ".py"
 	dir := "/media/sf_shared/TestAutomation"
@@ -102,19 +234,9 @@ func main() {
 
 	start := time.Now()
 
-	files, _ := GetFilesFromDir(dir, fileType)
-	count := 0
-	for _, file := range files {
-		found := SearchFile(file, searchPattern)
-		if len(found) == 0 {
-			continue
-		}
-
-		for _, result := range found {
-			count++
-			log.Println(count, result)
-		}
-	}
+	testCases := SearchForUsagesInTc(dir, fileType, searchPattern)
+	log.Println("Used in test cases:")
+	log.Println(testCases)
 
 	log.Println("Elapsed time", time.Since(start).Seconds())
 }
