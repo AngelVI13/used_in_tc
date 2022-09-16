@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/alexflint/go-arg"
+	"github.com/charmbracelet/lipgloss"
 	"io"
 	"log"
 	"os"
@@ -29,6 +30,34 @@ const (
 	MethodPatternStr = `def\s*(?P<name>.*?)\(`
 )
 
+var (
+	// https://en.wikipedia.org/wiki/ANSI_escape_code
+	// 8-bit color table shows where the numbers below come from
+	ImportantStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("3")) // gold
+
+	FilenameStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("6")) // green-blue
+
+	MatchStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("5")) // magenta
+
+	InfoStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("12")) // bright blue
+
+	WarningStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("11")) // bright yellow
+
+	ErrorStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("9")) // bright red
+)
+
 func GetFilesFromDir(root string, fileType string) ([]string, error) {
 	var files []string
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -44,13 +73,21 @@ type SearchResult struct {
 	file         string
 	line         int
 	col          int
+	colEnd       int
 	matchLineTxt string
 	usedInMethod string
 	isMethodDecl bool
 }
 
 func (r SearchResult) String() string {
-	return fmt.Sprintf("%d: %s", r.line, r.matchLineTxt)
+	// Apply styling to line number and match
+	out := MatchStyle.Render(fmt.Sprintf("%d: ", r.line))
+	out += r.matchLineTxt[:r.col]
+	out += MatchStyle.Render(r.matchLineTxt[r.col:r.colEnd])
+	out += r.matchLineTxt[r.colEnd:]
+
+	// return fmt.Sprintf("%d: %s", r.line, r.matchLineTxt)
+	return out
 }
 
 type FileResult struct {
@@ -61,7 +98,8 @@ type FileResult struct {
 }
 
 func (r FileResult) String() string {
-	out := fmt.Sprintf("%s\n", r.file)
+	out := FilenameStyle.Render(fmt.Sprintf("%s", r.file))
+	out += "\n"
 
 	for _, match := range r.matches {
 		out += fmt.Sprintf("\t%s\n\n", match)
@@ -86,10 +124,11 @@ func FindAllStringIndex[T SearchTerm](s string, pattern T) [][]int {
 
 	sub, ok := any(pattern).(string)
 	if !ok {
-		log.Fatalf(
+		errorTxt := fmt.Sprintf(
 			"Expected either a regexp.Regexp or a string but got neither: %v",
 			pattern,
 		)
+		log.Fatalf(ErrorStyle.Render(errorTxt))
 	}
 
 	results := make([][]int, 0)
@@ -115,7 +154,8 @@ func FindAllStringIndex[T SearchTerm](s string, pattern T) [][]int {
 func MatchMethodName(s string) string {
 	methodPattern, err := regexp.Compile(MethodPatternStr)
 	if err != nil {
-		log.Fatalf("Couldn't compile method declaration regex: %v", err)
+		errorTxt := fmt.Sprintf("Couldn't compile method declaration regex: %v", err)
+		log.Fatalf(ErrorStyle.Render(errorTxt))
 	}
 	nameIdx := methodPattern.SubexpIndex("name")
 
@@ -167,19 +207,21 @@ func ProcessMatch(match []int, text string) SearchResult {
 	rightNewLineIdx := strings.Index(posttext, "\n")
 
 	if leftNewLineIdx == -1 || rightNewLineIdx == -1 {
-		log.Fatalf(
+		errorTxt := fmt.Sprintf(
 			"Couldn't find left newline or right newline for match %s: %d %d",
 			text[start:end],
 			leftNewLineIdx,
 			rightNewLineIdx,
 		)
+		log.Fatalf(ErrorStyle.Render(errorTxt))
 	}
 
 	// +1 is needed to ignore the preceding newline
 	matchTxt := (pretext[leftNewLineIdx+1:] +
 		text[start:end] +
 		posttext[:rightNewLineIdx])
-	col := start - leftNewLineIdx
+	col := start - leftNewLineIdx - 1
+	colEnd := end - leftNewLineIdx - 1
 
 	usedInMethod := ""
 	isMethodDecl := MatchMethodName(matchTxt) != ""
@@ -191,6 +233,7 @@ func ProcessMatch(match []int, text string) SearchResult {
 	return SearchResult{
 		line:         line,
 		col:          col,
+		colEnd:       colEnd,
 		matchLineTxt: matchTxt,
 		usedInMethod: usedInMethod,
 		isMethodDecl: isMethodDecl,
@@ -201,7 +244,8 @@ func ProcessMatch(match []int, text string) SearchResult {
 func ProcessTc(text, path string) (isTc bool, tcId string) {
 	tcPathPattern, err := regexp.Compile(`test_cases/.*?/test_.*?\.py`)
 	if err != nil {
-		log.Fatalf("Couldn't compile TC path pattern: %v", err)
+		errorTxt := fmt.Sprintf("Couldn't compile TC path pattern: %v", err)
+		log.Fatalf(ErrorStyle.Render(errorTxt))
 	}
 	isTc = tcPathPattern.FindString(path) != ""
 
@@ -209,14 +253,16 @@ func ProcessTc(text, path string) (isTc bool, tcId string) {
 	if isTc {
 		tcIdPattern, err := regexp.Compile(`Polarion ID: (?P<id>[a-zA-Z0-9]+-\d+)`)
 		if err != nil {
-			log.Fatalf("Couldn't compile TC ID pattern: %v", err)
+			errorTxt := fmt.Sprintf("Couldn't compile TC ID pattern: %v", err)
+			log.Fatalf(ErrorStyle.Render(errorTxt))
 		}
 		idIndex := tcIdPattern.SubexpIndex("id")
 		match := tcIdPattern.FindStringSubmatch(text)
 		if match != nil {
 			tcId = match[idIndex]
 		} else {
-			log.Printf("ERROR: Couldn't find ID for TC %s", path)
+			errorTxt := fmt.Sprintf("ERROR: Couldn't find ID for TC %s", path)
+			log.Printf(ErrorStyle.Render(errorTxt))
 		}
 	}
 
@@ -228,7 +274,8 @@ func SearchFile[T SearchTerm](path string, pattern T) *FileResult {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		log.Printf("ERROR: Couldn't read file %s: %v", path, err)
+		errorTxt := fmt.Sprintf("ERROR: Couldn't read file %s: %v", path, err)
+		log.Printf(ErrorStyle.Render(errorTxt))
 		return nil
 	}
 	text := string(data)
@@ -275,7 +322,8 @@ func worker[T SearchTerm](jobs <-chan SearchJob[T], results chan<- FileResult, d
 func SearchInRepo[T SearchTerm](dir, fileType string, searchPattern T) []FileResult {
 	files, err := GetFilesFromDir(dir, fileType)
 	if err != nil {
-		log.Fatalf("Couldn't get list of files for dir %s: %v", dir, err)
+		errorTxt := fmt.Sprintf("Couldn't get list of files for dir %s: %v", dir, err)
+		log.Fatalf(errorTxt)
 	}
 
 	var (
@@ -372,16 +420,16 @@ func SearchForUsagesInTc[T SearchTerm](
 			// we can't reliably use the result from the search cause our search term
 			// is not unique -> return no results
 			if methodDeclarationNum > 1 {
-				log.Println(
+				errorTxt := fmt.Sprint(
 					"Found multiple method declaration for this search pattern. Discarding TC results: ",
 					searchPattern,
 				)
+				log.Println(ErrorStyle.Render(errorTxt))
 				return TestCasesMap{}
 			}
 
 			// Remove any declaration match from results so that we don't
 			// consider it as a nonTcMatch
-			log.Println("Removing decl match", match)
 			result.RemoveMatch(idx)
 		}
 
@@ -398,11 +446,23 @@ func SearchForUsagesInTc[T SearchTerm](
 	}
 
 	searched := map[string]bool{}
-	log.Println("Non TC results", nonTcMatches)
+	log.Printf(
+		"%s\n%s\n%s\n%s",
+		InfoStyle.Render("Non TC results"),
+		InfoStyle.Render("----------------"),
+		nonTcMatches,
+		InfoStyle.Render("----------------"),
+	)
 	for _, fileResult := range nonTcMatches {
 		for _, searchResult := range fileResult.matches {
 			if searchResult.usedInMethod == "" {
-				log.Println("No containing method found for match: ", searchResult)
+				errorTxt := fmt.Sprintf(
+					"No containing method found for match:\n%s\n%d: %s",
+					searchResult.file,
+					searchResult.line,
+					searchResult.matchLineTxt,
+				)
+				log.Println(ErrorStyle.Render(errorTxt))
 				continue
 			}
 
@@ -410,15 +470,18 @@ func SearchForUsagesInTc[T SearchTerm](
 			newSearchTerm := fmt.Sprintf("\\b%s\\b", searchResult.usedInMethod)
 			newSearchPattern, err := regexp.Compile(newSearchTerm)
 			if err != nil {
-				log.Fatalln("Couldn't compile method pattern regexp for: ", newSearchTerm)
+				errorTxt := fmt.Sprint("Couldn't compile method pattern regexp for: ", newSearchTerm)
+				log.Fatalln(ErrorStyle.Render(errorTxt))
 			}
 
 			if _, ok := searched[newSearchTerm]; ok {
-				log.Println("Containing method already searched: ", searchResult.usedInMethod)
+				warningTxt := fmt.Sprint("Containing method already searched: ", searchResult.usedInMethod)
+				log.Println(WarningStyle.Render(warningTxt))
 				continue
 			}
 
-			log.Printf("Extending search for %v by %s", searchPattern, newSearchPattern)
+			infoTxt := fmt.Sprintf("Extending search for %v by %s", searchPattern, newSearchPattern)
+			log.Printf(InfoStyle.Render(infoTxt))
 
 			// We just track the search term and not the regexp pattern for simplicity
 			searched[newSearchTerm] = true
@@ -455,7 +518,8 @@ func main() {
 	if args.UseRegex {
 		searchPatternRegex, err = regexp.Compile(args.Pattern)
 		if err != nil {
-			log.Fatalf("Couldn't compile search pattern %s: %v", args.Pattern, err)
+			errorTxt := fmt.Sprintf("Couldn't compile search pattern %s: %v", args.Pattern, err)
+			log.Fatalf(ErrorStyle.Render(errorTxt))
 		}
 	}
 
@@ -465,14 +529,15 @@ func main() {
 	if args.UseRegex {
 		searchTxt = searchPatternRegex.String()
 	}
-	log.Printf(
+
+	log.Printf(ImportantStyle.Render(fmt.Sprintf(
 		"Searching for: R(%v) |%s| (%s) %s D(%d)",
 		args.UseRegex,
 		searchTxt,
 		args.FileType,
 		args.Dir,
 		args.Distance,
-	)
+	)))
 
 	var testCases TestCasesMap
 	if args.UseRegex {
@@ -482,8 +547,10 @@ func main() {
 	}
 
 	log.Println()
-	log.Printf("Used in test cases (%d):", len(testCases))
-	log.Println(testCases)
+
+	infoTxt := fmt.Sprintf("Used in test cases (%d):", len(testCases))
+	log.Printf(InfoStyle.Render(infoTxt))
+	log.Println(InfoStyle.Render(testCases.String()))
 
 	log.Println("Elapsed time", time.Since(start).Seconds())
 }
