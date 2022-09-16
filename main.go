@@ -461,27 +461,23 @@ func main() {
 
 	start := time.Now()
 
+	searchTxt := args.Pattern
+	if args.UseRegex {
+		searchTxt = searchPatternRegex.String()
+	}
+	log.Printf(
+		"Searching for: R(%v) |%s| (%s) %s D(%d)",
+		args.UseRegex,
+		searchTxt,
+		args.FileType,
+		args.Dir,
+		args.Distance,
+	)
+
 	var testCases TestCasesMap
 	if args.UseRegex {
-		// TODO: make this better
-		log.Printf(
-			"Searching for: R(%v) |%v| (%s) %s D(%d)",
-			args.UseRegex,
-			searchPatternRegex,
-			args.FileType,
-			args.Dir,
-			args.Distance,
-		)
 		testCases = SearchForUsagesInTc(args.Dir, args.FileType, searchPatternRegex, args.Distance)
 	} else {
-		log.Printf(
-			"Searching for: R(%v) |%v| (%s) %s D(%d)",
-			args.UseRegex,
-			args.Pattern,
-			args.FileType,
-			args.Dir,
-			args.Distance,
-		)
 		testCases = SearchForUsagesInTc(args.Dir, args.FileType, args.Pattern, args.Distance)
 	}
 
