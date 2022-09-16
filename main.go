@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/alexflint/go-arg"
 	"io"
 	"log"
 	"os"
@@ -11,9 +12,21 @@ import (
 	"time"
 )
 
+var args struct {
+	UseRegex bool   `arg:"-r,--regex" default:"false" help:"Flag that enables regex search"`
+	FileType string `arg:"-t,--type" default:".py" help:"Filetypes to search (i.e. '.py')"`
+
+	// If match is not inside a testcase -> search for usage of containing method.
+	// How many levels of search to perform (trying to find a TC usage) before giving up
+	Distance int `arg:"-d,--dist" default:"6" help:"Levels of recursive search"`
+
+	LogFile string `arg:"-l,--log" default:"search.log" help:"Log filename"`
+	Pattern string `arg:"positional,required" help:"Pattern to search for"`
+	Dir     string `arg:"positional,required" help:"Directory to search in"`
+}
+
 const (
-	LogFile = "search.log"
-	TabSize = 4
+	MethodPatternStr = `def\s*(?P<name>.*?)\(`
 )
 
 func GetFilesFromDir(root string, fileType string) ([]string, error) {
@@ -33,6 +46,7 @@ type SearchResult struct {
 	col          int
 	matchLineTxt string
 	usedInMethod string
+	isMethodDecl bool
 }
 
 func (r SearchResult) String() string {
@@ -54,6 +68,11 @@ func (r FileResult) String() string {
 	}
 
 	return out
+}
+
+func (r *FileResult) RemoveMatch(idx int) {
+	r.matches[idx] = r.matches[len(r.matches)-1]
+	r.matches = r.matches[:len(r.matches)-1]
 }
 
 type SearchTerm interface {
@@ -83,15 +102,54 @@ func FindAllStringIndex[T SearchTerm](s string, pattern T) [][]int {
 			break
 		}
 
-		idx += currentIdx
-
-		results = append(results, []int{idx, idx + subLen})
+		// The result indexes have to be absolute and not only relative to the current text
+		results = append(results, []int{idx + currentIdx, idx + subLen + currentIdx})
 
 		currentTxt = currentTxt[idx+subLen:]
-		currentIdx = idx + subLen
+		currentIdx += idx + subLen
 	}
 
 	return results
+}
+
+func MatchMethodName(s string) string {
+	methodPattern, err := regexp.Compile(MethodPatternStr)
+	if err != nil {
+		log.Fatalf("Couldn't compile method declaration regex: %v", err)
+	}
+	nameIdx := methodPattern.SubexpIndex("name")
+
+	match := methodPattern.FindStringSubmatch(s)
+	if match == nil {
+		return ""
+	}
+	return match[nameIdx]
+
+}
+
+func GetContainingMethod(pretext string) string {
+	// Search for closest method declaration above usage -> this is used to
+	// continue searching for usages incase the match does not occur inside a test case file
+	usedInMethod := ""
+	lines := strings.Split(pretext, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		textLine := lines[i]
+
+		// Don't consider empty lines or lines containing only whitespace
+		if len(strings.TrimSpace(textLine)) == 0 {
+			continue
+		}
+
+		methodName := MatchMethodName(textLine)
+		if methodName == "" {
+			continue
+		}
+
+		usedInMethod = methodName
+		break
+	}
+
+	return usedInMethod
 }
 
 func ProcessMatch(match []int, text string) SearchResult {
@@ -123,48 +181,11 @@ func ProcessMatch(match []int, text string) SearchResult {
 		posttext[:rightNewLineIdx])
 	col := start - leftNewLineIdx
 
-	// TODO: refactor this to another method
-	// Search for the file line above the match that has a smaller indentation.
-	// When found, try to process a method name from that line -> this is used to
-	// continue searching for usages incase the match does not occur inside a test case file
-	matchCol := -1
 	usedInMethod := ""
-	lines := strings.Split(pretext, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		textLine := lines[i]
-
-		textCol := 0
-		for idx, c := range textLine {
-			if string(c) != " " {
-				textCol = idx
-				break
-			}
-		}
-
-		// During the first iteration we find the indentation level of match
-		if i == len(lines)-1 {
-			matchCol = textCol
-			continue
-		}
-
-		if textCol != matchCol-TabSize {
-			continue
-		}
-
-		methodPattern, err := regexp.Compile(`def\s*(?P<name>.*?)\(`)
-		if err != nil {
-			log.Fatalf("Couldn't compile method declaration regex: %v", err)
-		}
-		nameIdx := methodPattern.SubexpIndex("name")
-
-		match := methodPattern.FindStringSubmatch(textLine)
-		if match == nil {
-			break
-		}
-
-		usedInMethod = match[nameIdx]
-		log.Println(textLine, "<<<", usedInMethod)
-		break
+	isMethodDecl := MatchMethodName(matchTxt) != ""
+	// Only extract containing method if we don't have a method declaration in matchTxt
+	if !isMethodDecl {
+		usedInMethod = GetContainingMethod(pretext)
 	}
 
 	return SearchResult{
@@ -172,9 +193,11 @@ func ProcessMatch(match []int, text string) SearchResult {
 		col:          col,
 		matchLineTxt: matchTxt,
 		usedInMethod: usedInMethod,
+		isMethodDecl: isMethodDecl,
 	}
 }
 
+// NOTE: this is very project specific
 func ProcessTc(text, path string) (isTc bool, tcId string) {
 	tcPathPattern, err := regexp.Compile(`test_cases/.*?/test_.*?\.py`)
 	if err != nil {
@@ -298,28 +321,109 @@ func SearchInRepo[T SearchTerm](dir, fileType string, searchPattern T) []FileRes
 
 }
 
-func SearchForUsagesInTc[T SearchTerm](dir, fileType string, searchPattern T) []string {
-	testCases := []string{}
+type TestCasesMap map[string]bool
+
+func (m TestCasesMap) String() string {
+	out := "["
+	for k, _ := range m {
+		out += fmt.Sprintf("%s, ", k)
+	}
+	out += "]"
+	return out
+}
+
+func UpdateMap(v1, v2 map[string]bool) map[string]bool {
+	for k, _ := range v2 {
+		v1[k] = true
+	}
+	return v1
+}
+
+func SearchForUsagesInTc[T SearchTerm](
+	dir, fileType string,
+	searchPattern T,
+	degreesOfSeparation int,
+) TestCasesMap {
+	testCases := TestCasesMap{}
 	nonTcMatches := []FileResult{}
+
+	/*
+	   For recursive search make sure that only one method declaration is found for a
+	   usedInMethod search. This way we are sure to only find TCs related to the correct method.
+	   In some cases the usedInMethod will have a generic name like `connect` which might result
+	   in a lot of result that are not relevant to our search.
+	*/
+
+	if degreesOfSeparation <= 0 {
+		return TestCasesMap{}
+	}
+
+	methodDeclarationNum := 0
 
 	results := SearchInRepo(dir, fileType, searchPattern)
 	for _, result := range results {
+		for idx, match := range result.matches {
+			if !match.isMethodDecl {
+				continue
+			}
+
+			methodDeclarationNum++
+			// If we find search results that result in multiple method declarations
+			// we can't reliably use the result from the search cause our search term
+			// is not unique -> return no results
+			if methodDeclarationNum > 1 {
+				log.Println(
+					"Found multiple method declaration for this search pattern. Discarding TC results: ",
+					searchPattern,
+				)
+				return TestCasesMap{}
+			}
+
+			// Remove any declaration match from results so that we don't
+			// consider it as a nonTcMatch
+			log.Println("Removing decl match", match)
+			result.RemoveMatch(idx)
+		}
+
+		if len(result.matches) == 0 {
+			continue
+		}
+
 		fmt.Println(result)
 		if result.tcId != "" {
-			testCases = append(testCases, result.tcId)
+			testCases[result.tcId] = true
 		} else {
 			nonTcMatches = append(nonTcMatches, result)
 		}
 	}
 
-	// TODO: finish this by recursively continuing the search until it reaches a test case
-	log.Println("Non TC results")
+	searched := map[string]bool{}
+	log.Println("Non TC results", nonTcMatches)
 	for _, fileResult := range nonTcMatches {
 		for _, searchResult := range fileResult.matches {
-			log.Println(searchResult)
-			if searchResult.usedInMethod != "" {
-				log.Println(searchResult.usedInMethod)
+			if searchResult.usedInMethod == "" {
+				log.Println("No containing method found for match: ", searchResult)
+				continue
 			}
+
+			// Add word boudary to make sure we search for exact word matches
+			newSearchTerm := fmt.Sprintf("\\b%s\\b", searchResult.usedInMethod)
+			newSearchPattern, err := regexp.Compile(newSearchTerm)
+			if err != nil {
+				log.Fatalln("Couldn't compile method pattern regexp for: ", newSearchTerm)
+			}
+
+			if _, ok := searched[newSearchTerm]; ok {
+				log.Println("Containing method already searched: ", searchResult.usedInMethod)
+				continue
+			}
+
+			log.Printf("Extending search for %v by %s", searchPattern, newSearchPattern)
+
+			// We just track the search term and not the regexp pattern for simplicity
+			searched[newSearchTerm] = true
+			foundTcs := SearchForUsagesInTc(dir, fileType, newSearchPattern, degreesOfSeparation-1)
+			testCases = UpdateMap(testCases, foundTcs)
 		}
 	}
 
@@ -339,26 +443,49 @@ func setupLogger(filename string) {
 }
 
 func main() {
-	setupLogger(LogFile)
+	arg.MustParse(&args)
 
-	// TODO: use this flag
-	// useRegex := true
-	pattern := `\.outputHeater\.set_disconnected`
-	// pattern := `\.outputHeater\.`
-	searchPattern, err := regexp.Compile(pattern)
-	if err != nil {
-		log.Fatalf("Couldn't compile search pattern %s: %v", pattern, err)
+	setupLogger(args.LogFile)
+
+	// pattern := `\.outputHeater\.set_disconnected`
+	var (
+		searchPatternRegex *regexp.Regexp
+		err                error
+	)
+	if args.UseRegex {
+		searchPatternRegex, err = regexp.Compile(args.Pattern)
+		if err != nil {
+			log.Fatalf("Couldn't compile search pattern %s: %v", args.Pattern, err)
+		}
 	}
-	// searchPatternStr := `.outputHeater.set_disconnected`
-
-	fileType := ".py"
-	dir := "/media/sf_shared/TestAutomation"
-
-	log.Println(searchPattern, fileType, dir)
 
 	start := time.Now()
 
-	testCases := SearchForUsagesInTc(dir, fileType, searchPattern)
+	var testCases TestCasesMap
+	if args.UseRegex {
+		// TODO: make this better
+		log.Printf(
+			"Searching for: R(%v) |%v| (%s) %s D(%d)",
+			args.UseRegex,
+			searchPatternRegex,
+			args.FileType,
+			args.Dir,
+			args.Distance,
+		)
+		testCases = SearchForUsagesInTc(args.Dir, args.FileType, searchPatternRegex, args.Distance)
+	} else {
+		log.Printf(
+			"Searching for: R(%v) |%v| (%s) %s D(%d)",
+			args.UseRegex,
+			args.Pattern,
+			args.FileType,
+			args.Dir,
+			args.Distance,
+		)
+		testCases = SearchForUsagesInTc(args.Dir, args.FileType, args.Pattern, args.Distance)
+	}
+
+	log.Println()
 	log.Printf("Used in test cases (%d):", len(testCases))
 	log.Println(testCases)
 
