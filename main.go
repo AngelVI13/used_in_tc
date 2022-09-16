@@ -22,12 +22,17 @@ var args struct {
 	Distance int `arg:"-d,--dist" default:"6" help:"Levels of recursive search"`
 
 	LogFile string `arg:"-l,--log" default:"search.log" help:"Log filename"`
+	XmlFile string `arg:"-x,--xml" default:"vl_template.xml" help:"Template xml filename"`
+	OutFile string `arg:"-o,--out" default:"search_tc.xml" help:"Output xml filename"`
+
 	Pattern string `arg:"positional,required" help:"Pattern to search for"`
 	Dir     string `arg:"positional,required" help:"Directory to search in"`
 }
 
 const (
 	MethodPatternStr = `def\s*(?P<name>.*?)\(`
+	VlReplaceTxt     = "<!-- REPLACE -->"
+	ProtocolTemplate = "<protocol project-id=\"4008APackage2\" id=\"%s\"></protocol>"
 )
 
 var (
@@ -128,7 +133,7 @@ func FindAllStringIndex[T SearchTerm](s string, pattern T) [][]int {
 			"Expected either a regexp.Regexp or a string but got neither: %v",
 			pattern,
 		)
-		log.Fatalf(ErrorStyle.Render(errorTxt))
+		log.Fatal(ErrorStyle.Render(errorTxt))
 	}
 
 	results := make([][]int, 0)
@@ -155,7 +160,7 @@ func MatchMethodName(s string) string {
 	methodPattern, err := regexp.Compile(MethodPatternStr)
 	if err != nil {
 		errorTxt := fmt.Sprintf("Couldn't compile method declaration regex: %v", err)
-		log.Fatalf(ErrorStyle.Render(errorTxt))
+		log.Fatal(ErrorStyle.Render(errorTxt))
 	}
 	nameIdx := methodPattern.SubexpIndex("name")
 
@@ -213,7 +218,7 @@ func ProcessMatch(match []int, text string) SearchResult {
 			leftNewLineIdx,
 			rightNewLineIdx,
 		)
-		log.Fatalf(ErrorStyle.Render(errorTxt))
+		log.Fatal(ErrorStyle.Render(errorTxt))
 	}
 
 	// +1 is needed to ignore the preceding newline
@@ -245,7 +250,7 @@ func ProcessTc(text, path string) (isTc bool, tcId string) {
 	tcPathPattern, err := regexp.Compile(`test_cases/.*?/test_.*?\.py`)
 	if err != nil {
 		errorTxt := fmt.Sprintf("Couldn't compile TC path pattern: %v", err)
-		log.Fatalf(ErrorStyle.Render(errorTxt))
+		log.Fatal(ErrorStyle.Render(errorTxt))
 	}
 	isTc = tcPathPattern.FindString(path) != ""
 
@@ -254,7 +259,7 @@ func ProcessTc(text, path string) (isTc bool, tcId string) {
 		tcIdPattern, err := regexp.Compile(`Polarion ID: (?P<id>[a-zA-Z0-9]+-\d+)`)
 		if err != nil {
 			errorTxt := fmt.Sprintf("Couldn't compile TC ID pattern: %v", err)
-			log.Fatalf(ErrorStyle.Render(errorTxt))
+			log.Fatal(ErrorStyle.Render(errorTxt))
 		}
 		idIndex := tcIdPattern.SubexpIndex("id")
 		match := tcIdPattern.FindStringSubmatch(text)
@@ -262,7 +267,7 @@ func ProcessTc(text, path string) (isTc bool, tcId string) {
 			tcId = match[idIndex]
 		} else {
 			errorTxt := fmt.Sprintf("ERROR: Couldn't find ID for TC %s", path)
-			log.Printf(ErrorStyle.Render(errorTxt))
+			log.Print(ErrorStyle.Render(errorTxt))
 		}
 	}
 
@@ -275,7 +280,7 @@ func SearchFile[T SearchTerm](path string, pattern T) *FileResult {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		errorTxt := fmt.Sprintf("ERROR: Couldn't read file %s: %v", path, err)
-		log.Printf(ErrorStyle.Render(errorTxt))
+		log.Print(ErrorStyle.Render(errorTxt))
 		return nil
 	}
 	text := string(data)
@@ -481,7 +486,7 @@ func SearchForUsagesInTc[T SearchTerm](
 			}
 
 			infoTxt := fmt.Sprintf("Extending search for %v by %s", searchPattern, newSearchPattern)
-			log.Printf(InfoStyle.Render(infoTxt))
+			log.Print(InfoStyle.Render(infoTxt))
 
 			// We just track the search term and not the regexp pattern for simplicity
 			searched[newSearchTerm] = true
@@ -491,6 +496,29 @@ func SearchForUsagesInTc[T SearchTerm](
 	}
 
 	return testCases
+}
+
+func CreateXml(templatePath, outPath string, testCases TestCasesMap) {
+	data, err := os.ReadFile(templatePath)
+	if err != nil {
+		errorTxt := fmt.Sprintf("ERROR: Couldn't read file %s: %v", templatePath, err)
+		log.Fatal(ErrorStyle.Render(errorTxt))
+	}
+	text := string(data)
+
+	protocols := ""
+	for tc := range testCases {
+		protocols += fmt.Sprintf(ProtocolTemplate, tc)
+		protocols += "\n"
+	}
+
+	text = strings.Replace(text, VlReplaceTxt, protocols, 1)
+
+	err = os.WriteFile(outPath, []byte(text), 0666)
+	if err != nil {
+		errorTxt := fmt.Sprintf("ERROR: Couldn't write to file %s: %v", outPath, err)
+		log.Fatal(ErrorStyle.Render(errorTxt))
+	}
 }
 
 func setupLogger(filename string) {
@@ -546,11 +574,16 @@ func main() {
 		testCases = SearchForUsagesInTc(args.Dir, args.FileType, args.Pattern, args.Distance)
 	}
 
+	CreateXml(args.XmlFile, args.OutFile, testCases)
+
 	log.Println()
 
 	infoTxt := fmt.Sprintf("Used in test cases (%d):", len(testCases))
-	log.Printf(InfoStyle.Render(infoTxt))
+	log.Println(InfoStyle.Render(infoTxt))
 	log.Println(InfoStyle.Render(testCases.String()))
+
+	infoTxt = fmt.Sprintf("TC Xml created successfully: %s", args.OutFile)
+	log.Println(ImportantStyle.Render(infoTxt))
 
 	log.Println("Elapsed time", time.Since(start).Seconds())
 }
