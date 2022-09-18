@@ -39,7 +39,7 @@ func ProcessMatch(match []int, text string) SearchResult {
 	colEnd := end - leftNewLineIdx - 1
 
 	usedInMethod := ""
-	isMethodDecl := MatchMethodName(matchTxt) != ""
+	isMethodDecl := MatchContainerName(MethodContainer, matchTxt) != ""
 	// Only extract containing method if we don't have a method declaration in matchTxt
 	if !isMethodDecl {
 		usedInMethod = GetContainingMethod(pretext)

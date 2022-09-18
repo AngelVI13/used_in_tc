@@ -10,7 +10,22 @@ import (
 	"time"
 )
 
-const MethodPatternStr = `def\s*(?P<name>.*?)\(`
+const (
+	MethodPatternStr = `def\s*(?P<name>.*?)\(`
+	ClassPatternStr  = `class\s*(?P<name>.*?):`
+)
+
+type ContainerType int
+
+const (
+	ClassContainer ContainerType = iota
+	MethodContainer
+)
+
+var ContainerName = map[ContainerType]string{
+	ClassContainer:  "class",
+	MethodContainer: "method",
+}
 
 func FindAllStringIndex[T SearchTerm](s string, pattern T) [][]int {
 	if p, ok := any(pattern).(*regexp.Regexp); ok {
@@ -46,20 +61,24 @@ func FindAllStringIndex[T SearchTerm](s string, pattern T) [][]int {
 	return results
 }
 
-func MatchMethodName(s string) string {
-	methodPattern, err := regexp.Compile(MethodPatternStr)
+func MatchContainerName(t ContainerType, s string) string {
+	pattern := MethodPatternStr
+	if t == ClassContainer {
+		pattern = ClassPatternStr
+	}
+
+	searchPattern, err := regexp.Compile(pattern)
 	if err != nil {
-		errorTxt := fmt.Sprintf("Couldn't compile method declaration regex: %v", err)
+		errorTxt := fmt.Sprintf("Couldn't compile %s declaration regex: %v", ContainerName[t], err)
 		log.Fatal(ErrorStyle.Render(errorTxt))
 	}
-	nameIdx := methodPattern.SubexpIndex("name")
+	nameIdx := searchPattern.SubexpIndex("name")
 
-	match := methodPattern.FindStringSubmatch(s)
+	match := searchPattern.FindStringSubmatch(s)
 	if match == nil {
 		return ""
 	}
 	return match[nameIdx]
-
 }
 
 func GetContainingMethod(pretext string) string {
@@ -82,7 +101,14 @@ func GetContainingMethod(pretext string) string {
 			continue
 		}
 
-		methodName := MatchMethodName(textLine)
+		// If we encounter a class decl first -> no method name found -> stop search
+		className := MatchContainerName(ClassContainer, textLine)
+		if className != "" {
+			break
+		}
+
+		// If current line doesn't have a method name -> continue searching with the next one
+		methodName := MatchContainerName(MethodContainer, textLine)
 		if methodName == "" {
 			continue
 		}
