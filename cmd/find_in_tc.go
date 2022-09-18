@@ -84,7 +84,7 @@ func main() {
 		testCases = repo_search.SearchForUsagesInTc(args.Dir, args.FileType, args.Pattern, args.Distance)
 	}
 
-	repo_search.CreateXml(args.XmlFile, args.OutFile, testCases)
+	repo_search.CreateXml(args.XmlFile, args.OutFile, searchTxt, testCases)
 
 	log.Println()
 

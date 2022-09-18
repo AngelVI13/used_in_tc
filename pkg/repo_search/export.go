@@ -8,11 +8,13 @@ import (
 )
 
 const (
-	VlReplaceTxt     = "<!-- REPLACE -->"
-	ProtocolTemplate = "<protocol project-id=\"4008APackage2\" id=\"%s\"></protocol>"
+	VlReplaceResults       = "<!-- REPLACE WITH RESULTS-->"
+	VlReplaceSearchPattern = "<!-- REPLACE WITH SEARCH PATTERN-->"
+	ProtocolTemplate       = "<protocol project-id=\"4008APackage2\" id=\"%s\"></protocol>"
+	SearchPatternTemplate  = "<!-- SEARCH: %s -->"
 )
 
-func CreateXml(templatePath, outPath string, testCases TestCasesMap) {
+func CreateXml(templatePath, outPath, searchPattern string, testCases TestCasesMap) {
 	data, err := os.ReadFile(templatePath)
 	if err != nil {
 		errorTxt := fmt.Sprintf("ERROR: Couldn't read file %s: %v", templatePath, err)
@@ -26,7 +28,13 @@ func CreateXml(templatePath, outPath string, testCases TestCasesMap) {
 		protocols += "\n"
 	}
 
-	text = strings.Replace(text, VlReplaceTxt, protocols, 1)
+	text = strings.Replace(text, VlReplaceResults, protocols, 1)
+	text = strings.Replace(
+		text,
+		VlReplaceSearchPattern,
+		fmt.Sprintf(SearchPatternTemplate, searchPattern),
+		1,
+	)
 
 	err = os.WriteFile(outPath, []byte(text), 0666)
 	if err != nil {
