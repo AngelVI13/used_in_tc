@@ -14,7 +14,7 @@ const (
 	SearchPatternTemplate  = "<!-- SEARCH: %s -->"
 )
 
-func CreateXml(templatePath, outPath, searchPattern string, testCases TestCasesMap) {
+func CreateXml(templatePath, outPath, searchPattern string, testCases TestCasesMap) string {
 	data, err := os.ReadFile(templatePath)
 	if err != nil {
 		errorTxt := fmt.Sprintf("ERROR: Couldn't read file %s: %v", templatePath, err)
@@ -36,9 +36,12 @@ func CreateXml(templatePath, outPath, searchPattern string, testCases TestCasesM
 		1,
 	)
 
-	err = os.WriteFile(outPath, []byte(text), 0666)
+	outFilename := AddTimestampToFilename(outPath, ".xml")
+	err = os.WriteFile(outFilename, []byte(text), 0666)
 	if err != nil {
-		errorTxt := fmt.Sprintf("ERROR: Couldn't write to file %s: %v", outPath, err)
+		errorTxt := fmt.Sprintf("ERROR: Couldn't write to file %s: %v", outFilename, err)
 		log.Fatal(ErrorStyle.Render(errorTxt))
 	}
+
+	return outFilename
 }

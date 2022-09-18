@@ -84,7 +84,7 @@ func main() {
 		testCases = repo_search.SearchForUsagesInTc(args.Dir, args.FileType, args.Pattern, args.Distance)
 	}
 
-	repo_search.CreateXml(args.XmlFile, args.OutFile, searchTxt, testCases)
+	outFilename := repo_search.CreateXml(args.XmlFile, args.OutFile, searchTxt, testCases)
 
 	log.Println()
 
@@ -95,7 +95,7 @@ func main() {
 	log.Println(repo_search.InfoStyle.Render(infoTxt))
 	log.Println(repo_search.InfoStyle.Render(testCases.String()))
 
-	infoTxt = fmt.Sprintf("TC Xml created successfully: %s", args.OutFile)
+	infoTxt = fmt.Sprintf("TC Xml created successfully: %s", outFilename)
 	log.Println(repo_search.ImportantStyle.Render(infoTxt))
 
 	log.Println("Elapsed time", time.Since(start).Seconds())

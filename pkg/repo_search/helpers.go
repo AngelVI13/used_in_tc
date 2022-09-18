@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const MethodPatternStr = `def\s*(?P<name>.*?)\(`
@@ -113,4 +114,14 @@ func GetFilesFromDir(root string, fileType string) ([]string, error) {
 		return nil
 	})
 	return files, err
+}
+
+func AddTimestampToFilename(filename, ext string) string {
+	currentTime := time.Now()
+	timeStamp := currentTime.Format("2006_01_02__15_04_05")
+
+	name := strings.TrimSuffix(filename, ext)
+	newFilename := fmt.Sprintf("%s_%s%s", name, timeStamp, ext)
+
+	return newFilename
 }

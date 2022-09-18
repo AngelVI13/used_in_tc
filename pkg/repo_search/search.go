@@ -68,7 +68,7 @@ func SearchForUsagesInTc[T SearchTerm](
 					"Found multiple method declaration for this search pattern. Discarding TC results: ",
 					searchPattern,
 				)
-				log.Println(ErrorStyle.Render(errorTxt))
+				log.Println(WarningStyle.Render(errorTxt))
 				return TestCasesMap{}
 			}
 
@@ -105,7 +105,7 @@ func SearchForUsagesInTc[T SearchTerm](
 					searchResult.line,
 					searchResult.matchLineTxt,
 				)
-				log.Println(ErrorStyle.Render(errorTxt))
+				log.Println(WarningStyle.Render(errorTxt))
 				continue
 			}
 
@@ -118,8 +118,10 @@ func SearchForUsagesInTc[T SearchTerm](
 			}
 
 			if _, ok := AlreadySearched[newSearchTerm]; ok {
+				/* NOTE: this spams too much
 				warningTxt := fmt.Sprint("Containing method already searched: ", searchResult.usedInMethod)
 				log.Println(WarningStyle.Render(warningTxt))
+				*/
 				continue
 			}
 
