@@ -89,7 +89,8 @@ func GetContainingMethod(pretext string) string {
 func GetFilesFromDir(root string, fileType string) ([]string, error) {
 	var files []string
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if !info.IsDir() && strings.HasSuffix(path, fileType) {
+		// TODO: add blacklist to script args
+		if !info.IsDir() && strings.HasSuffix(path, fileType) && !strings.HasSuffix(path, "_pb2"+fileType) {
 			files = append(files, path)
 		}
 		return nil
