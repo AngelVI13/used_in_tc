@@ -62,6 +62,13 @@ func MatchMethodName(s string) string {
 }
 
 func GetContainingMethod(pretext string) string {
+	// Pre compile some method testing patters
+	testMethodPattern, err := regexp.Compile(`^test_(\d+)_`)
+	if err != nil {
+		errorTxt := fmt.Sprintf("Couldn't compile test method declaration regex: %v", err)
+		log.Fatal(ErrorStyle.Render(errorTxt))
+	}
+
 	// Search for closest method declaration above usage -> this is used to
 	// continue searching for usages incase the match does not occur inside a test case file
 	usedInMethod := ""
@@ -77,6 +84,16 @@ func GetContainingMethod(pretext string) string {
 		methodName := MatchMethodName(textLine)
 		if methodName == "" {
 			continue
+		}
+
+		// Do not use any test case official method as a containing method
+		if testMethodPattern.MatchString(methodName) {
+			break
+		}
+
+		// Do not use __init__ as containg method cause we can't search for it
+		if methodName == "__init__" {
+			break
 		}
 
 		usedInMethod = methodName

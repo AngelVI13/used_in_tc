@@ -7,6 +7,8 @@ import (
 	"regexp"
 )
 
+var AlreadySearched map[string]bool
+
 type SearchTerm interface {
 	string | *regexp.Regexp
 }
@@ -87,7 +89,6 @@ func SearchForUsagesInTc[T SearchTerm](
 		}
 	}
 
-	searched := map[string]bool{}
 	log.Printf(
 		"%s\n%s\n%s\n%s",
 		InfoStyle.Render("Non TC results"),
@@ -116,7 +117,7 @@ func SearchForUsagesInTc[T SearchTerm](
 				log.Fatalln(ErrorStyle.Render(errorTxt))
 			}
 
-			if _, ok := searched[newSearchTerm]; ok {
+			if _, ok := AlreadySearched[newSearchTerm]; ok {
 				warningTxt := fmt.Sprint("Containing method already searched: ", searchResult.usedInMethod)
 				log.Println(WarningStyle.Render(warningTxt))
 				continue
@@ -126,7 +127,7 @@ func SearchForUsagesInTc[T SearchTerm](
 			log.Print(InfoStyle.Render(infoTxt))
 
 			// We just track the search term and not the regexp pattern for simplicity
-			searched[newSearchTerm] = true
+			AlreadySearched[newSearchTerm] = true
 			foundTcs := SearchForUsagesInTc(dir, fileType, newSearchPattern, degreesOfSeparation-1)
 			testCases = UpdateMap(testCases, foundTcs)
 		}

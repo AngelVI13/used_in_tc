@@ -75,6 +75,9 @@ func main() {
 	)))
 
 	var testCases repo_search.TestCasesMap
+	// Initialize global var holding already searched data
+	repo_search.AlreadySearched = map[string]bool{}
+
 	if args.UseRegex {
 		testCases = repo_search.SearchForUsagesInTc(args.Dir, args.FileType, searchPatternRegex, args.Distance)
 	} else {
