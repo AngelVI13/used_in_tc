@@ -85,6 +85,9 @@ func main() {
 
 	log.Println()
 
+	searchInfoTxt := fmt.Sprintf("Search results for: %s", searchTxt)
+	log.Println(repo_search.ImportantStyle.Render(searchInfoTxt))
+
 	infoTxt := fmt.Sprintf("Used in test cases (%d):", len(testCases))
 	log.Println(repo_search.InfoStyle.Render(infoTxt))
 	log.Println(repo_search.InfoStyle.Render(testCases.String()))
