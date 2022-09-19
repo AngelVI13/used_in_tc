@@ -4,8 +4,8 @@
         <build-result>4008APackage2:4AP2-64121</build-result>
         <verification-loop>P0264_047_R3</verification-loop>
         <protocols>
-			<!-- REPLACE WITH SEARCH PATTERN-->
-            <!-- REPLACE WITH RESULTS-->
+<!-- REPLACE WITH SEARCH PATTERN-->
+<!-- REPLACE WITH RESULTS-->
         </protocols>
     </dv-plan>
 </ta-tool-export>

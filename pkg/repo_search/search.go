@@ -13,7 +13,8 @@ type SearchTerm interface {
 	string | *regexp.Regexp
 }
 
-type TestCasesMap map[string]bool
+// TestCasesMap map[ID]Path
+type TestCasesMap map[string]string
 
 func (m TestCasesMap) String() string {
 	out := "["
@@ -24,9 +25,9 @@ func (m TestCasesMap) String() string {
 	return out
 }
 
-func UpdateMap(v1, v2 map[string]bool) map[string]bool {
-	for k, _ := range v2 {
-		v1[k] = true
+func UpdateMap(v1, v2 TestCasesMap) TestCasesMap {
+	for k, v := range v2 {
+		v1[k] = v
 	}
 	return v1
 }
@@ -83,7 +84,7 @@ func SearchForUsagesInTc[T SearchTerm](
 
 		fmt.Println(result)
 		if result.tcId != "" {
-			testCases[result.tcId] = true
+			testCases[result.tcId] = result.file
 		} else {
 			nonTcMatches = append(nonTcMatches, result)
 		}
