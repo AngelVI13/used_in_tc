@@ -3,6 +3,7 @@ package repo_search
 import (
 	"fmt"
 	"log"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -57,7 +58,8 @@ func ProcessMatch(match []int, text string) SearchResult {
 
 // NOTE: this is very project specific
 func ProcessTc(text, path string) (isTc bool, tcId string) {
-	tcPathPattern, err := regexp.Compile(`test_cases/.*?/test_.*?\.py`)
+	testCasePathPattern := fmt.Sprintf(`test_cases%c.*?%ctest_.*?\.py`, os.PathSeparator, os.PathSeparator)
+	tcPathPattern, err := regexp.Compile(testCasePathPattern)
 	if err != nil {
 		errorTxt := fmt.Sprintf("Couldn't compile TC path pattern: %v", err)
 		log.Fatal(ErrorStyle.Render(errorTxt))
