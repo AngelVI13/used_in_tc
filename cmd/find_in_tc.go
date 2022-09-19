@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,9 @@ import (
 	"github.com/alexflint/go-arg"
 )
 
+//go:embed vl_template.xml
+var templateXml string
+
 var args struct {
 	UseRegex bool   `arg:"-r,--regex" default:"false" help:"Flag that enables regex search"`
 	FileType string `arg:"-t,--type" default:".py" help:"Filetypes to search (i.e. '.py')"`
@@ -21,7 +25,6 @@ var args struct {
 	Distance int `arg:"-d,--dist" default:"6" help:"Levels of recursive search"`
 
 	LogFile string `arg:"-l,--log" default:"search.log" help:"Log filename"`
-	XmlFile string `arg:"-x,--xml" default:"vl_template.xml" help:"Template xml filename"`
 	OutFile string `arg:"-o,--out" default:"search_tc.xml" help:"Output xml filename"`
 
 	Pattern string `arg:"positional,required" help:"Pattern to search for"`
@@ -84,7 +87,7 @@ func main() {
 		testCases = repo_search.SearchForUsagesInTc(args.Dir, args.FileType, args.Pattern, args.Distance)
 	}
 
-	outFilename := repo_search.CreateXml(args.XmlFile, args.OutFile, searchTxt, testCases)
+	outFilename := repo_search.CreateXml(templateXml, args.OutFile, searchTxt, testCases)
 
 	log.Println()
 

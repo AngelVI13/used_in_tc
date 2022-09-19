@@ -14,30 +14,23 @@ const (
 	SearchPatternTemplate  = "<!-- SEARCH: %s -->"
 )
 
-func CreateXml(templatePath, outPath, searchPattern string, testCases TestCasesMap) string {
-	data, err := os.ReadFile(templatePath)
-	if err != nil {
-		errorTxt := fmt.Sprintf("ERROR: Couldn't read file %s: %v", templatePath, err)
-		log.Fatal(ErrorStyle.Render(errorTxt))
-	}
-	text := string(data)
-
+func CreateXml(template, outPath, searchPattern string, testCases TestCasesMap) string {
 	protocols := ""
 	for tc := range testCases {
 		protocols += fmt.Sprintf(ProtocolTemplate, tc)
 		protocols += "\n"
 	}
 
-	text = strings.Replace(text, VlReplaceResults, protocols, 1)
-	text = strings.Replace(
-		text,
+	template = strings.Replace(template, VlReplaceResults, protocols, 1)
+	template = strings.Replace(
+		template,
 		VlReplaceSearchPattern,
 		fmt.Sprintf(SearchPatternTemplate, searchPattern),
 		1,
 	)
 
 	outFilename := AddTimestampToFilename(outPath, ".xml")
-	err = os.WriteFile(outFilename, []byte(text), 0666)
+	err := os.WriteFile(outFilename, []byte(template), 0666)
 	if err != nil {
 		errorTxt := fmt.Sprintf("ERROR: Couldn't write to file %s: %v", outFilename, err)
 		log.Fatal(ErrorStyle.Render(errorTxt))
