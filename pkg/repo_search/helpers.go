@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	MethodPatternStr = `def\s*(?P<name>.*?)\(`
-	ClassPatternStr  = `class\s*(?P<name>.*?):`
+	MethodPatternStr = `def\s+(?P<name>.*?)\(`
+	ClassPatternStr  = `class\s+(?P<name>.*?):`
 )
 
 type ContainerType int
