@@ -13,8 +13,24 @@ const (
 	SearchPatternTemplate  = "<!-- SEARCH: %s -->"
 )
 
+func GetTcBySetup(testCases TestCasesMap) map[string]TestCasesMap {
+	out := map[string]TestCasesMap{}
+
+	for id, tc := range testCases {
+		setup := tc.info.setup
+		setup = strings.TrimSpace(setup)
+		setup = strings.Split(setup, " ")[0]
+		setup = strings.ToLower(setup)
+
+		out[setup][id] = tc
+	}
+
+	return out
+}
+
 func CreateXml(template, outPath, searchPattern string, testCases TestCasesMap) string {
 	protocols := ""
+	// TODO: sort TCs by setup and then by duration for each setup
 	for _, tc := range testCases {
 		protocols += tc.Protocol()
 		protocols += "\n"

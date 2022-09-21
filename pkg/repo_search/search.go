@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -42,6 +43,43 @@ func (t *TestCase) Protocol() string {
 	out := fmt.Sprintf(ProtocolTemplate, t.info.id, tcInfo, testScriptReference)
 
 	return out
+}
+
+func (t *TestCase) DurationSec() int {
+	durationPattern, err := regexp.Compile(`(?P<hours>\d+):(?P<mins>\d+):(?P<secs>\d+)`)
+	if err != nil {
+		errorTxt := fmt.Sprintf("Couldn't compile duration regex: %v", err)
+		log.Fatal(ErrorStyle.Render(errorTxt))
+	}
+
+	hoursIdx := durationPattern.SubexpIndex("hours")
+	minsIdx := durationPattern.SubexpIndex("mins")
+	secsIdx := durationPattern.SubexpIndex("secs")
+
+	match := durationPattern.FindStringSubmatch(t.info.estimate)
+	if match == nil {
+		errorTxt := fmt.Sprintf("Couldn't find hours/mins/secs for TC %s: %v", t.info.id, err)
+		log.Fatal(ErrorStyle.Render(errorTxt))
+	}
+
+	// TODO: This looks pretty ugly
+	hours, err := strconv.Atoi(match[hoursIdx])
+	if err != nil {
+		errorTxt := fmt.Sprintf("Couldn't convert hours to int for TC %s: %v", t.info.id, err)
+		log.Fatal(ErrorStyle.Render(errorTxt))
+	}
+	mins, err := strconv.Atoi(match[minsIdx])
+	if err != nil {
+		errorTxt := fmt.Sprintf("Couldn't convert mins to int for TC %s: %v", t.info.id, err)
+		log.Fatal(ErrorStyle.Render(errorTxt))
+	}
+	secs, err := strconv.Atoi(match[secsIdx])
+	if err != nil {
+		errorTxt := fmt.Sprintf("Couldn't convert secs to int for TC %s: %v", t.info.id, err)
+		log.Fatal(ErrorStyle.Render(errorTxt))
+	}
+
+	return ((secs * 60) * mins) * hours
 }
 
 // TestCasesMap Key is TC ID
