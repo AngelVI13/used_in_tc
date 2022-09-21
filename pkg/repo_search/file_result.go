@@ -6,7 +6,7 @@ type FileResult struct {
 	file    string
 	matches []SearchResult
 	isTc    bool
-	tcId    string
+	tcInfo  TestCaseInfo
 }
 
 func (r FileResult) String() string {

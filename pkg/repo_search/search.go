@@ -13,8 +13,13 @@ type SearchTerm interface {
 	string | *regexp.Regexp
 }
 
-// TestCasesMap map[ID]Path
-type TestCasesMap map[string]string
+type TestCase struct {
+	path string
+	info TestCaseInfo
+}
+
+// TestCasesMap Key is TC ID
+type TestCasesMap map[string]TestCase
 
 func (m TestCasesMap) String() string {
 	out := "["
@@ -83,8 +88,11 @@ func SearchForUsagesInTc[T SearchTerm](
 		}
 
 		fmt.Println(result)
-		if result.tcId != "" {
-			testCases[result.tcId] = result.file
+		if result.tcInfo.id != "" {
+			testCases[result.tcInfo.id] = TestCase{
+				path: result.file,
+				info: result.tcInfo,
+			}
 		} else {
 			nonTcMatches = append(nonTcMatches, result)
 		}
@@ -211,12 +219,16 @@ func SearchFile[T SearchTerm](path string, pattern T) *FileResult {
 		return nil
 	}
 
-	isTc, tcId := ProcessTc(text, path)
+	isTc := IsPathTc(path)
+	var tcInfo TestCaseInfo
+	if isTc {
+		tcInfo = ProcessTc(text, path)
+	}
 	return &FileResult{
 		file:    path,
 		matches: results,
 		isTc:    isTc,
-		tcId:    tcId,
+		tcInfo:  tcInfo,
 	}
 }
 

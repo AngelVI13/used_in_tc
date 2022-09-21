@@ -56,8 +56,7 @@ func ProcessMatch(match []int, text string) SearchResult {
 	}
 }
 
-// NOTE: this is very project specific
-func ProcessTc(text, path string) (isTc bool, tcId string) {
+func IsPathTc(path string) bool {
 	sep := string(os.PathSeparator)
 	if sep != "/" {
 		sep = `\\` // on WIN make sure to escape the backslash
@@ -69,24 +68,58 @@ func ProcessTc(text, path string) (isTc bool, tcId string) {
 		errorTxt := fmt.Sprintf("Couldn't compile TC path pattern: %v", err)
 		log.Fatal(ErrorStyle.Render(errorTxt))
 	}
-	isTc = tcPathPattern.FindString(path) != ""
+	isTc := tcPathPattern.FindString(path) != ""
+	return isTc
+}
 
-	tcId = ""
-	if isTc {
-		tcIdPattern, err := regexp.Compile(`Polarion ID: (?P<id>[a-zA-Z0-9]+-\d+)`)
-		if err != nil {
-			errorTxt := fmt.Sprintf("Couldn't compile TC ID pattern: %v", err)
-			log.Fatal(ErrorStyle.Render(errorTxt))
-		}
-		idIndex := tcIdPattern.SubexpIndex("id")
-		match := tcIdPattern.FindStringSubmatch(text)
-		if match != nil {
-			tcId = match[idIndex]
-		} else {
-			errorTxt := fmt.Sprintf("ERROR: Couldn't find ID for TC %s", path)
-			log.Print(ErrorStyle.Render(errorTxt))
-		}
+type TestCaseInfo struct {
+	estimate string
+	setup    string
+	id       string
+}
+
+func ExtractTcElement(text, pattern, resultId string) string {
+	element := ""
+	elementPattern, err := regexp.Compile(pattern)
+	if err != nil {
+		errorTxt := fmt.Sprintf("Couldn't compile TC %s pattern: %v", resultId, err)
+		log.Fatal(ErrorStyle.Render(errorTxt))
+	}
+	resultIdIndex := elementPattern.SubexpIndex(resultId)
+	match := elementPattern.FindStringSubmatch(text)
+	if match != nil {
+		element = match[resultIdIndex]
+	}
+	return element
+}
+
+// NOTE: this is very project specific
+func ProcessTc(text, path string) TestCaseInfo {
+	tcIdPattern := `Polarion ID: (?P<id>[a-zA-Z0-9]+-\d+)`
+	tcId := ExtractTcElement(text, tcIdPattern, "id")
+	if tcId == "" {
+		// TODO: Should any of these errors return an empty object?
+		errorTxt := fmt.Sprintf("ERROR: Couldn't find %s for TC %s", tcId, path)
+		log.Print(ErrorStyle.Render(errorTxt))
 	}
 
-	return isTc, tcId
+	setupPattern := `Setup: (?P<setup>.*?)\n`
+	setup := ExtractTcElement(text, setupPattern, "setup")
+	if setup == "" {
+		errorTxt := fmt.Sprintf("ERROR: Couldn't find %s for TC %s", setup, path)
+		log.Print(ErrorStyle.Render(errorTxt))
+	}
+
+	estimatePattern := `Initial estimate: \b(?P<estimate>[0-9:]+)\b`
+	estimate := ExtractTcElement(text, estimatePattern, "estimate")
+	if estimate == "" {
+		errorTxt := fmt.Sprintf("ERROR: Couldn't find %s for TC %s", estimate, path)
+		log.Print(ErrorStyle.Render(errorTxt))
+	}
+
+	return TestCaseInfo{
+		estimate: estimate,
+		setup:    setup,
+		id:       tcId,
+	}
 }
