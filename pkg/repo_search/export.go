@@ -8,31 +8,15 @@ import (
 )
 
 const (
-	VlReplaceResults        = "<!-- REPLACE WITH RESULTS-->"
-	VlReplaceSearchPattern  = "<!-- REPLACE WITH SEARCH PATTERN-->"
-	ProtocolTemplate        = "<protocol project-id=\"4008APackage2\" id=\"%s\"> <!-- %s -->\n\t%s\n</protocol>"
-	ScriptReferenceTemplate = "<test-script-reference>%s</test-script-reference>"
-	ScriptUrlTemplate       = "http://desw-svn1.schweinfurt.germany.fresenius.de/svn/4008A/apps/trunk/test_automation/%s"
-	SearchPatternTemplate   = "<!-- SEARCH: %s -->"
+	VlReplaceResults       = "<!-- REPLACE WITH RESULTS-->"
+	VlReplaceSearchPattern = "<!-- REPLACE WITH SEARCH PATTERN-->"
+	SearchPatternTemplate  = "<!-- SEARCH: %s -->"
 )
 
 func CreateXml(template, outPath, searchPattern string, testCases TestCasesMap) string {
 	protocols := ""
-	for tc, data := range testCases {
-		// Format test case path to expected test script reference path url
-		_, after, found := strings.Cut(data.path, "test_cases")
-		if !found {
-			errorTxt := fmt.Sprintf("Couldn't find '/test_cases/' in path: %s", data.path)
-			log.Fatalf(ErrorStyle.Render(errorTxt))
-		}
-		tcPath := "test_cases" + after
-		tcPath = strings.ReplaceAll(tcPath, "\\", "/")
-
-		testScriptUrl := fmt.Sprintf(ScriptUrlTemplate, tcPath)
-		testScriptReference := fmt.Sprintf(ScriptReferenceTemplate, testScriptUrl)
-
-		tcInfo := fmt.Sprintf("Duration: %s; Setup: %s", data.info.estimate, data.info.setup)
-		protocols += fmt.Sprintf(ProtocolTemplate, tc, tcInfo, testScriptReference)
+	for _, tc := range testCases {
+		protocols += tc.Protocol()
 		protocols += "\n"
 	}
 

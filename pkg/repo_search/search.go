@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"strings"
 )
 
 var AlreadySearched map[string]bool
@@ -13,9 +14,34 @@ type SearchTerm interface {
 	string | *regexp.Regexp
 }
 
+const (
+	ProtocolTemplate        = "<protocol project-id=\"4008APackage2\" id=\"%s\"> <!-- %s -->\n\t%s\n</protocol>"
+	ScriptReferenceTemplate = "<test-script-reference>%s</test-script-reference>"
+	ScriptUrlTemplate       = "http://desw-svn1.schweinfurt.germany.fresenius.de/svn/4008A/apps/trunk/test_automation/%s"
+)
+
 type TestCase struct {
 	path string
 	info TestCaseInfo
+}
+
+func (t *TestCase) Protocol() string {
+	// Format test case path to expected test script reference path url
+	_, after, found := strings.Cut(t.path, "test_cases")
+	if !found {
+		errorTxt := fmt.Sprintf("Couldn't find '/test_cases/' in path: %s", t.path)
+		log.Fatalf(ErrorStyle.Render(errorTxt))
+	}
+	tcPath := "test_cases" + after
+	tcPath = strings.ReplaceAll(tcPath, "\\", "/")
+
+	testScriptUrl := fmt.Sprintf(ScriptUrlTemplate, tcPath)
+	testScriptReference := fmt.Sprintf(ScriptReferenceTemplate, testScriptUrl)
+
+	tcInfo := fmt.Sprintf("Duration: %s; Setup: %s", t.info.estimate, t.info.setup)
+	out := fmt.Sprintf(ProtocolTemplate, t.info.id, tcInfo, testScriptReference)
+
+	return out
 }
 
 // TestCasesMap Key is TC ID
