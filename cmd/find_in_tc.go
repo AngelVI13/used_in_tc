@@ -26,6 +26,7 @@ var args struct {
 
 	LogFile string `arg:"-l,--log" default:"search.log" help:"Log filename"`
 	OutFile string `arg:"-o,--out" default:"search_tc.xml" help:"Output xml filename"`
+	WiFile  string `arg:"-w,--wi" default:"" help:"Exported XML file from polarion containing all TCA work item info."`
 
 	Pattern string `arg:"positional,required" help:"Pattern to search for"`
 	Dir     string `arg:"positional,required" help:"Directory to search in"`
@@ -87,7 +88,8 @@ func main() {
 		testCases = repo_search.SearchForUsagesInTc(args.Dir, args.FileType, args.Pattern, args.Distance)
 	}
 
-	outFilename := repo_search.CreateXml(templateXml, args.OutFile, searchTxt, testCases)
+	protocolTxt := repo_search.CreateProtocolXml(testCases, args.WiFile)
+	outFilename := repo_search.CreateXml(templateXml, args.OutFile, searchTxt, protocolTxt)
 
 	log.Println()
 

@@ -32,29 +32,83 @@ func GetTcBySetup(testCases TestCasesMap) map[string]TestCasesMap {
 	return out
 }
 
-func CreateXml(template, outPath, searchPattern string, testCases TestCasesMap) string {
+func FindApprovedTcs(
+	testCases TestCasesMap,
+	workItems WorkItems,
+) (approved []TestCase, notApproved []TestCase) {
+	approved = []TestCase{}
+	notApproved = []TestCase{}
+
+	for id, tc := range testCases {
+		// If workItems is not provided -> assume all are approved
+		if workItems == nil {
+			approved = append(approved, tc)
+			continue
+		}
+
+		info, ok := workItems[id]
+		if !ok {
+			log.Println("Cant find TC ID in workItems: ", id)
+			notApproved = append(notApproved, tc)
+			continue
+		}
+
+		if info.Status == "Approved" {
+			approved = append(approved, tc)
+		} else {
+			notApproved = append(notApproved, tc)
+		}
+	}
+	return approved, notApproved
+}
+
+func CreateProtocolXml(testCases TestCasesMap, wiExportPath string) string {
 	protocols := ""
 	tcBySetup := GetTcBySetup(testCases)
 
-	for setup, tests := range tcBySetup {
-		protocols += fmt.Sprintf("\n<!-- %s -->\n", setup)
+	var workItems WorkItems
+	if wiExportPath != "" {
+		workItems = GetWorkItemsFromPolarionExport(wiExportPath)
+	}
 
-		testCasesSlice := []TestCase{}
-		for _, tc := range tests {
-			testCasesSlice = append(testCasesSlice, tc)
-		}
+	// if we have workitems information, Include Approved/NotApproved info to protocols txt
+	approvedTxt := ""
+	if workItems != nil {
+		approvedTxt = "Approved "
+	}
+
+	for setup, tests := range tcBySetup {
+		protocols += fmt.Sprintf("\n<!-- %s %s-->\n", setup, approvedTxt)
+
+		approved, notApproved := FindApprovedTcs(tests, workItems)
 
 		// sort test cases for each setup by duration
-		sort.Slice(testCasesSlice, func(i, j int) bool {
-			return testCasesSlice[i].DurationSec() < testCasesSlice[j].DurationSec()
+		sort.Slice(approved, func(i, j int) bool {
+			return approved[i].DurationSec() < approved[j].DurationSec()
 		})
 
-		for _, tc := range testCasesSlice {
+		// sort test cases for each setup by duration
+		sort.Slice(notApproved, func(i, j int) bool {
+			return notApproved[i].DurationSec() < notApproved[j].DurationSec()
+		})
+
+		for _, tc := range approved {
 			protocols += tc.Protocol()
 			protocols += "\n"
 		}
-	}
 
+		if len(notApproved) > 0 {
+			protocols += fmt.Sprintf("\n<!-- %s - NOT APPROVED -->\n", setup)
+			for _, tc := range notApproved {
+				protocols += tc.Protocol()
+				protocols += "\n"
+			}
+		}
+	}
+	return protocols
+}
+
+func CreateXml(template, outPath, searchPattern, protocols string) string {
 	template = strings.Replace(template, VlReplaceResults, protocols, 1)
 	template = strings.Replace(
 		template,
