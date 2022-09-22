@@ -59,23 +59,27 @@ func (t *TestCase) DurationSec() int {
 	match := durationPattern.FindStringSubmatch(t.info.estimate)
 	if match == nil {
 		errorTxt := fmt.Sprintf("Couldn't find hours/mins/secs for TC %s: %v", t.info.id, err)
-		log.Fatal(ErrorStyle.Render(errorTxt))
+		log.Println(ErrorStyle.Render(errorTxt))
+		return 0
 	}
 
 	hours, err := strconv.Atoi(match[hoursIdx])
 	if err != nil {
 		errorTxt := fmt.Sprintf("Couldn't convert hours to int for TC %s: %v", t.info.id, err)
-		log.Fatal(ErrorStyle.Render(errorTxt))
+		log.Println(ErrorStyle.Render(errorTxt))
+		return 0
 	}
 	mins, err := strconv.Atoi(match[minsIdx])
 	if err != nil {
 		errorTxt := fmt.Sprintf("Couldn't convert mins to int for TC %s: %v", t.info.id, err)
-		log.Fatal(ErrorStyle.Render(errorTxt))
+		log.Println(ErrorStyle.Render(errorTxt))
+		return 0
 	}
 	secs, err := strconv.Atoi(match[secsIdx])
 	if err != nil {
 		errorTxt := fmt.Sprintf("Couldn't convert secs to int for TC %s: %v", t.info.id, err)
-		log.Fatal(ErrorStyle.Render(errorTxt))
+		log.Println(ErrorStyle.Render(errorTxt))
+		return 0
 	}
 
 	return secs + (mins * 60) + (hours * 60 * 60)
