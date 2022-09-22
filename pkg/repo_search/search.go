@@ -62,7 +62,6 @@ func (t *TestCase) DurationSec() int {
 		log.Fatal(ErrorStyle.Render(errorTxt))
 	}
 
-	// TODO: This looks pretty ugly
 	hours, err := strconv.Atoi(match[hoursIdx])
 	if err != nil {
 		errorTxt := fmt.Sprintf("Couldn't convert hours to int for TC %s: %v", t.info.id, err)
@@ -79,7 +78,7 @@ func (t *TestCase) DurationSec() int {
 		log.Fatal(ErrorStyle.Render(errorTxt))
 	}
 
-	return ((secs * 60) * mins) * hours
+	return secs + (mins * 60) + (hours * 60 * 60)
 }
 
 // TestCasesMap Key is TC ID
@@ -87,7 +86,7 @@ type TestCasesMap map[string]TestCase
 
 func (m TestCasesMap) String() string {
 	out := "["
-	for k, _ := range m {
+	for k := range m {
 		out += fmt.Sprintf("%s, ", k)
 	}
 	out += "]"
